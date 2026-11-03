@@ -473,3 +473,4 @@ elif selected_view == "🧪 Flight Risk Simulator":
         sim_actions = generate_interventions(sim_emp_dict)
         for act in sim_actions:
             st.write(f"• **[{act['priority']}]** {act['intervention']}")
+

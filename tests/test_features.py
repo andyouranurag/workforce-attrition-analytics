@@ -172,3 +172,4 @@ class TestEncodeCategoricals:
     def test_original_col_removed(self, sample_employees):
         result = encode_categoricals(sample_employees.copy(), ["department"])
         assert "department" not in result.columns
+

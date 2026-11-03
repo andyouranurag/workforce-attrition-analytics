@@ -94,3 +94,4 @@ def sample_attrition(sample_employees):
         "exit_date": [None] * 20,
         "voluntary_flag": [None] * 20,
     })
+

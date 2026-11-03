@@ -183,3 +183,4 @@ class TestBurnoutDetector:
         detector, scaler = train_burnout_detector(df)
         assert isinstance(detector, IsolationForest)
         assert isinstance(scaler, StandardScaler)
+
