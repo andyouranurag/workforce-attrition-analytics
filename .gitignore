@@ -1,0 +1,58 @@
+# ── Python ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Environment ──────────────────────────────────────────────
+.env
+*.env.local
+
+# ── Data files (potentially large / sensitive) ───────────────
+data/raw/
+data/processed/
+database/seed/
+*.parquet
+*.csv
+
+# ── Model artifacts ──────────────────────────────────────────
+models/artifacts/
+*.json.model
+*.xgb
+
+# ── Reports (generated) ──────────────────────────────────────
+reports/
+*.png
+*.pdf
+
+# ── Jupyter ──────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── IDE ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Testing ──────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
