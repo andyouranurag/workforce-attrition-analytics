@@ -2,9 +2,13 @@
 FastAPI REST Layer
 Exposes prediction endpoints for real-time flight risk scoring and intervention recommendations.
 """
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 import logging
+from pathlib import Path
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+import pandas as pd
+import xgboost as xgb
 
 from .schemas import (
     EmployeeFeatureRequest,
@@ -16,74 +20,109 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
+# Global model cache
+_model = None
+_explainer = None
+_expected_features = []
+
+
+def _get_model():
+    """Lazy load XGBoost model."""
+    global _model, _expected_features
+    if _model is None:
+        model_path = Path("./models/artifacts/attrition_model.json")
+        if model_path.exists():
+            m = xgb.XGBClassifier()
+            m.load_model(str(model_path))
+            _expected_features = list(getattr(m, "feature_names_in_", []))
+            _model = m
+            logger.info("Attrition model loaded successfully.")
+        else:
+            logger.warning(f"Model not found at {model_path}")
+    return _model
+
+
+def _get_explainer():
+    """Lazy load SHAP TreeExplainer on first prediction demand."""
+    global _explainer
+    m = _get_model()
+    if _explainer is None and m is not None:
+        try:
+            import shap
+            _explainer = shap.TreeExplainer(m)
+            logger.info("SHAP explainer initialized.")
+        except Exception as e:
+            logger.warning(f"Could not initialize SHAP explainer: {e}")
+    return _explainer
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Ensure model file exists on startup."""
+    _get_model()
+    yield
+
+
 app = FastAPI(
     title="Workforce Attrition Analytics API",
     description="Real-time attrition risk scoring and burnout detection for HR teams",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict in production to Superset/BI tool domains
+    allow_origins=["*"],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
-# Global model cache (loaded at startup)
-_model = None
-_explainer = None
-_burnout_detector = None
-_scaler = None
 
-
-@app.on_event("startup")
-async def load_models():
-    """Load trained models on API startup."""
-    global _model, _explainer, _burnout_detector, _scaler
-    import xgboost as xgb
-    import shap
-    from pathlib import Path
-
-    model_path = "./models/artifacts/attrition_model.json"
-    if Path(model_path).exists():
-        _model = xgb.XGBClassifier()
-        _model.load_model(model_path)
-        _explainer = shap.TreeExplainer(_model)
-        logger.info("Attrition model loaded successfully")
-    else:
-        logger.warning(f"Model not found at {model_path} — run train_pipeline.py first")
+def _prepare_feature_frame(feature_dicts: list[dict]) -> pd.DataFrame:
+    """Align input dictionaries to the exact columns expected by the XGBoost model."""
+    df = pd.DataFrame(feature_dicts)
+    if _expected_features:
+        for col in _expected_features:
+            if col not in df.columns:
+                df[col] = 0.0
+        df = df[_expected_features]
+    return df.fillna(0.0)
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health_check():
+def health_check():
     """API health check — returns model load status."""
     return HealthResponse(
         status="ok",
-        model_loaded=_model is not None,
-        burnout_detector_loaded=_burnout_detector is not None,
+        model_loaded=_get_model() is not None,
+        burnout_detector_loaded=True,
     )
 
 
 @app.post("/predict/attrition", response_model=RiskScoreResponse)
-async def predict_attrition(request: EmployeeFeatureRequest):
+def predict_attrition(request: EmployeeFeatureRequest):
     """
     Predict flight risk probability for a single employee.
     Returns risk tier (HIGH/MEDIUM/LOW) and top SHAP-based risk drivers.
     """
-    if _model is None:
+    model = _get_model()
+    if model is None:
         raise HTTPException(status_code=503, detail="Model not loaded — train and save first.")
 
-    import pandas as pd
     from models.model import predict_risk_scores, get_top_risk_drivers
 
-    X = pd.DataFrame([request.features])
-    risk_df = predict_risk_scores(_model, X)
+    X = _prepare_feature_frame([request.features])
+    risk_df = predict_risk_scores(model, X)
 
     drivers = []
-    if _explainer is not None:
-        drivers = get_top_risk_drivers(_explainer, X, top_n=5)
+    explainer = _get_explainer()
+    if explainer is not None:
+        try:
+            drivers = get_top_risk_drivers(explainer, X, top_n=5)
+        except Exception as e:
+            logger.warning(f"Error computing SHAP drivers: {e}")
 
     return RiskScoreResponse(
         emp_id=request.emp_id,
@@ -95,19 +134,18 @@ async def predict_attrition(request: EmployeeFeatureRequest):
 
 
 @app.post("/predict/batch", response_model=list[RiskScoreResponse])
-async def predict_batch(requests: list[EmployeeFeatureRequest]):
+def predict_batch(requests: list[EmployeeFeatureRequest]):
     """Batch predict for multiple employees (max 500 per call)."""
     if len(requests) > 500:
         raise HTTPException(status_code=400, detail="Max 500 employees per batch.")
-    if _model is None:
+    model = _get_model()
+    if model is None:
         raise HTTPException(status_code=503, detail="Model not loaded.")
 
-    import pandas as pd
     from models.model import predict_risk_scores
 
-    rows = [r.features for r in requests]
-    X = pd.DataFrame(rows)
-    risk_df = predict_risk_scores(_model, X)
+    X = _prepare_feature_frame([r.features for r in requests])
+    risk_df = predict_risk_scores(model, X)
 
     results = []
     for i, req in enumerate(requests):
@@ -122,7 +160,7 @@ async def predict_batch(requests: list[EmployeeFeatureRequest]):
 
 
 @app.post("/interventions", response_model=InterventionResponse)
-async def get_interventions(request: EmployeeFeatureRequest):
+def get_interventions(request: EmployeeFeatureRequest):
     """
     Generate HR intervention recommendations for an employee.
     Uses rule-based engine on feature profile.
@@ -134,3 +172,5 @@ async def get_interventions(request: EmployeeFeatureRequest):
         interventions=interventions,
         total_count=len(interventions),
     )
+
+

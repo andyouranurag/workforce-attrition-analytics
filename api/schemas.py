@@ -11,21 +11,23 @@ class EmployeeFeatureRequest(BaseModel):
     features: dict[str, float] = Field(
         ...,
         description="Feature dict matching the model's expected input columns",
-        example={
-            "tenure_years": 3.5,
-            "avg_overtime_90d": 2.8,
-            "absence_trend_90d": 4,
-            "satisfaction_score": 2.5,
-            "work_life_balance_score": 2.0,
-            "manager_relationship_score": 3.0,
-            "career_growth_score": 2.0,
-            "compensation_fairness_score": 2.5,
-            "composite_engagement_score": 2.4,
-            "performance_rating": 3.2,
-            "promotions_count": 0,
-            "stagnation_flag": 1,
-            "burnout_risk_score": 65.0,
-            "underpaid_flag": 1,
+        json_schema_extra={
+            "example": {
+                "tenure_years": 3.5,
+                "avg_overtime_90d": 2.8,
+                "absence_trend_90d": 4,
+                "satisfaction_score": 2.5,
+                "work_life_balance_score": 2.0,
+                "manager_relationship_score": 3.0,
+                "career_growth_score": 2.0,
+                "compensation_fairness_score": 2.5,
+                "composite_engagement_score": 2.4,
+                "performance_rating": 3.2,
+                "promotions_count": 0,
+                "stagnation_flag": 1,
+                "burnout_risk_score": 65.0,
+                "underpaid_flag": 1,
+            }
         }
     )
 
@@ -66,3 +68,4 @@ class HealthResponse(BaseModel):
     status: str
     model_loaded: bool
     burnout_detector_loaded: bool
+
