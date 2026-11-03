@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # 1. Streamlit Interactive BI Dashboard
+  dashboard:
+    build: .
+    container_name: workforce-dashboard
+    command: python -m streamlit run dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./models/artifacts:/app/models/artifacts
+      - ./reports:/app/reports
+    environment:
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DATABASE=workforce_analytics
+      - PG_USER=postgres
+      - PG_PASSWORD=postgres
+    depends_on:
+      - postgres
+
+  # 2. FastAPI REST Prediction Engine & Swagger UI
+  api:
+    build: .
+    container_name: workforce-api
+    command: python -m uvicorn api.main:app --host 0.0.0.0 --port 8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./models/artifacts:/app/models/artifacts
+    depends_on:
+      - postgres
+
+  # 3. PostgreSQL Warehouse
+  postgres:
+    image: postgres:15-alpine
+    container_name: workforce-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=workforce_analytics
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/init.sql
+
+  # 4. Apache Superset Enterprise BI
+  superset:
+    image: apache/superset:latest
+    container_name: workforce-superset
+    ports:
+      - "8088:8088"
+    environment:
+      - SUPERSET_SECRET_KEY=workforce_analytics_secret_key_123
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:
